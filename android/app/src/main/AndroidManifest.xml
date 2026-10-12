@@ -51,6 +51,14 @@
                 <action android:name="android.hardware.usb.action.USB_DEVICE_ATTACHED" />
             </intent-filter>
         </activity>
+        <!-- the Graphics driver setting's Browse...: the file picker for a driver zip (DriverPicker.java); its own task, as
+             PTActivity is singleInstance and would not get the picker's answer itself -->
+        <activity android:name=".DriverPicker"
+            android:theme="@android:style/Theme.Translucent.NoTitleBar.Fullscreen"
+            android:excludeFromRecents="true"
+            android:taskAffinity="com.ptport.app.driverpicker"
+            android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|keyboard|keyboardHidden|navigation"
+            android:exported="false" />
         <!-- the bottom screen's clock where a Presentation is refused (SecondScreen.java) -->
         <activity android:name=".SecondScreenActivity"
             android:theme="@android:style/Theme.Material.NoActionBar.Fullscreen"

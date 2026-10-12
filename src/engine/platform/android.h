@@ -6,6 +6,7 @@
 
 #include <filesystem>
 #include <string>
+#include <vector>
 
 #include "engine/render/vk.h"
 
@@ -31,9 +32,20 @@ float RenderScale(const char* gpu_name);
 inline constexpr float kResolutionShares[] = {0.0f, 0.5f, 0.58f, 0.667f, 0.75f, 0.85f, 1.0f};
 inline constexpr int kResolutionChoices = static_cast<int>(sizeof(kResolutionShares) / sizeof(kResolutionShares[0]));
 void SetResolutionSetting(int index);
-/* The graphics driver setting (display.android_driver): 0 the bundled Turnip, 1 the device's own. Read at start, before the
-   Vulkan context; a change applies at the next start. driver.txt, when the app can read it, wins. */
-void SetDriverSetting(int value);
+/* The graphics driver setting (display.android_driver): "turnip" the bundled Turnip, "system" the device's own, or one of
+   CustomDrivers(). Read at start, before the Vulkan context; a change applies at the next start. driver.txt, when the app can
+   read it, wins. */
+void SetDriverSetting(const std::string& value);
+/* The drivers the player added with Browse... (each an AdrenoTools driver zip unpacked into the app's private
+   custom_drivers/<name>, named after the zip without .zip), sorted by name. */
+std::vector<std::string> CustomDrivers();
+/* Browse...: Android's file picker (DriverPicker.java), opened in Download, for an AdrenoTools driver zip. The answer comes
+   later through TakePickedDriver. */
+void BrowseDriver();
+/* Once per answer of the picker, on the game thread: true with `name` (the driver now in CustomDrivers()) when a zip was
+   added, true with `error` when it could not be, true with both empty when the picker was closed; false while there is
+   none. */
+bool TakePickedDriver(std::string& name, std::string& error);
 
 /* The second screen of a dual-screen handheld (AYN Thor and others; android/.../SecondScreen.java): the loop the player is on
    and the subtitle line playing now (empty for none), sent on only when one of them changes. Does nothing without one. */
@@ -53,9 +65,9 @@ void InstallCrashLog(const std::filesystem::path& path);
    list differs from the one copied last time. The engine reads them as ordinary files from there. */
 bool UnpackBundledAssets();
 
-/* The Vulkan driver chosen in DataDir()/driver.txt: "turnip" (the default, Mesa Turnip bundled in the APK and loaded
-   through libadrenotools) or "system" (the device's own driver). Returns the driver's vkGetInstanceProcAddr, or null for
-   the system loader; `name` says which one was taken. */
+/* The Vulkan driver chosen in driver.txt or the setting: "turnip" (the default, Mesa Turnip bundled in the APK and loaded
+   through libadrenotools), "system" (the device's own driver) or an added one (CustomDrivers, also through libadrenotools).
+   Returns the driver's vkGetInstanceProcAddr, or null for the system loader; `name` says which one was taken. */
 PFN_vkGetInstanceProcAddr LoadVulkanDriver(std::string& name);
 /* The bundled driver found no GPU it runs (an Adreno newer than Turnip knows, such as the 8xx): the context retries with
    the system's driver (vk_context.cpp), and LoadVulkanDriver is not asked again. */

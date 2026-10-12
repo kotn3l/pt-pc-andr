@@ -28,8 +28,9 @@ struct AppSettings {
         int touch_controls = 0;
         // the render resolution on Android (android.h kResolutionShares): 0 auto by GPU, 1 50%, 2 58%, 3 67%, 4 75%, 5 85%, 6 100%
         int android_resolution = 0;
-        // the graphics driver on Android: 0 the bundled Mesa Turnip, 1 the device's own (from the next start)
-        int android_driver = 0;
+        // the graphics driver on Android, from the next start: "turnip" the bundled Mesa Turnip, "system" the device's own, or
+        // the name of a driver zip the player added (android.h CustomDrivers); an older pt.ini's 0 and 1 read as turnip and system
+        std::string android_driver = "turnip";
     } display;
     struct Input {
         float mouse_sensitivity = 1.0f;

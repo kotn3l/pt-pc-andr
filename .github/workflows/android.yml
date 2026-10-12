@@ -7,7 +7,8 @@ name: Android
 
 on:
   push:
-    branches: [android-port]
+    # android-driver-browse: the Graphics driver's Browse... (a test APK as an artifact, no release)
+    branches: [android-port, android-driver-browse]
     tags: ['android-v*']
   workflow_dispatch:
 
@@ -62,7 +63,7 @@ jobs:
           release=""
           if [ "$GITHUB_REF_TYPE" = tag ]; then
             release="${GITHUB_REF_NAME#android-}"
-          elif [ -s release-version.txt ]; then
+          elif [ "$GITHUB_REF" = refs/heads/android-port ] && [ -s release-version.txt ]; then
             wanted="$(tr -d ' \r\n' < release-version.txt)"
             if [ -n "$wanted" ] && ! gh release view "android-$wanted" >/dev/null 2>&1; then release="$wanted"; fi
           fi

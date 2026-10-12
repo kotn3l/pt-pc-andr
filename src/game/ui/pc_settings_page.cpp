@@ -377,13 +377,23 @@ void PcSettingsPage::Change(Game& game, int delta, bool accept) {
         return;
     }
     const int from = ShownValue(*row);
+    if (accept && row->browse_value >= 0 && from == row->browse_value) {
+        preview_id_ = -1;
+        source_->Activate(row->id);
+        Refresh();
+        if (game.Audio()) {
+            game.Audio()->PostEvent(kChangeSound, nullptr);
+        }
+        return;
+    }
     int value = from + delta;
     value = row->wrap ? (value % n + n) % n : std::clamp(value, 0, n - 1);
     if (value == from) {
         return;
     }
-    if (row->ValueDisabled(value) && value != row->value) {
-        // shown greyed with its reason; the setting keeps its value until the cursor steps on to one it can take
+    if ((row->ValueDisabled(value) || value == row->browse_value) && value != row->value) {
+        // shown greyed with its reason (or a browse value, waiting for accept); the setting keeps its value until the cursor
+        // steps on to one it can take
         preview_id_ = row->id;
         preview_value_ = value;
     } else {

@@ -1,5 +1,6 @@
 package com.ptport.app;
 
+import android.content.Intent;
 import android.os.Bundle;
 import android.view.KeyEvent;
 import android.view.MotionEvent;
@@ -58,6 +59,22 @@ public class PTActivity extends SDLActivity {
         } catch (Throwable t) {
             return false;
         }
+    }
+
+    // from the game (src/engine/platform/android.cpp BrowseDriver): the Graphics driver setting's Browse..., any thread; the
+    // answer goes back through DriverPicker.nativePicked
+    @SuppressWarnings("unused")
+    public static boolean browseDriver() {
+        final PTActivity activity = current;
+        if (activity == null) return false;
+        activity.runOnUiThread(() -> {
+            try {
+                activity.startActivity(new Intent(activity, DriverPicker.class));
+            } catch (Exception e) {
+                DriverPicker.answer(null, "the file picker could not be opened");
+            }
+        });
+        return true;
     }
 
     @Override

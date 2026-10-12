@@ -22,6 +22,9 @@ struct PcSettingRow {
     // a value with a note here cannot be chosen: the page shows it greyed with this note while the cursor rests on it and
     // does not pass it to the source (an upscaler the GPU or the SDK cannot run)
     std::vector<std::string> value_notes;
+    // a value that is no setting (the Graphics driver's "Browse..."): the cursor shows it without passing it to the source, and
+    // accept on it asks the source to Activate the row; -1 none
+    int browse_value = -1;
     bool ValueDisabled(int v) const { return v >= 0 && v < static_cast<int>(value_notes.size()) && !value_notes[v].empty(); }
 };
 

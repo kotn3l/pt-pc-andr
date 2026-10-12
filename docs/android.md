@@ -24,6 +24,11 @@ output matches the desktop installer byte for byte.
 - `Android/data/com.ptport.app/files/data/pt.ini`: settings and saves, as on PC.
 - `Download/PT-logs/driver.txt`: the Vulkan driver. `turnip` (default, the bundled Mesa Turnip), `system` (the device's
   own Qualcomm driver), or the file name of another driver's `.so` (from an AdrenoTools driver zip) put in the same folder.
+  It wins over the Graphics driver setting when the app can read it.
+- Settings > Display > Graphics driver > **Browse...**: Android's file picker (`DriverPicker.java`), opened in Download,
+  for an AdrenoTools driver zip. The zip is unpacked into the app's private `files/custom_drivers/<zip name>/` (its
+  `meta.json` names the driver `.so`, saved as `library.txt`) and chosen; pt.ini keeps the name in `display.android_driver`.
+  Each added zip stays in the list; picking a zip with the same name again replaces it.
 
 ## Second screen
 

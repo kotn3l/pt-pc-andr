@@ -639,6 +639,9 @@ struct App {
     std::string microphone_hypothesis;
     std::string microphone_status = "pc_mic_waiting";
     std::string microphone_reason = "pc_mic_st_loading";
+    // why the last driver zip picked with Browse... (Graphics driver, Android) was not added, shown as the row's note; empty
+    // once one is
+    std::string driver_error;
     pt::Renderer renderer;
     pt::TextureManager textures;
     pt::SceneRenderer scene;
@@ -1963,8 +1966,24 @@ public:
                                        {"pc_second_screen_subtitles", "pc_second_screen_clock", "pc_second_screen_dim", "pc_off"},
                                        std::clamp(s.display.second_screen, 0, 3), "pc_note_second_screen"));
         }
-        display.rows.push_back(Row(kGraphicsDriver, "pc_graphics_driver", {"pc_graphics_driver_turnip", "pc_graphics_driver_system"},
-                                   std::clamp(s.display.android_driver, 0, 1), "pc_note_graphics_driver"));
+        {
+            // System, the bundled Turnip, the zips added so far, then Browse... (it adds one: Activate)
+            const std::vector<std::string> drivers = GraphicsDrivers();
+            pt::game::PcSettingRow driver = Row(kGraphicsDriver, "pc_graphics_driver", {}, 0,
+                                                app_.driver_error.empty() ? std::string("pc_note_graphics_driver")
+                                                                          : "pc_note_graphics_driver_failed" + std::string(1, pt::game::kPcNoteArgument) + app_.driver_error);
+            for (size_t i = 0; i < drivers.size(); ++i) {
+                driver.values.push_back(i == 0 ? "pc_graphics_driver_system" : i == 1 ? "pc_graphics_driver_turnip" : drivers[i]);
+                if (SameDriver(drivers[i], s.display.android_driver)) driver.value = static_cast<int>(i);
+            }
+            // an added driver whose folder is gone loads the bundled Turnip (android.cpp), so the row shows that
+            if (!std::any_of(drivers.begin(), drivers.end(), [&](const std::string& d) { return SameDriver(d, s.display.android_driver); })) {
+                driver.value = 1;
+            }
+            driver.browse_value = static_cast<int>(driver.values.size());
+            driver.values.push_back("pc_graphics_driver_browse");
+            display.rows.push_back(std::move(driver));
+        }
         display.rows.push_back(Row(kTouchControls, "pc_touch_controls", {"pc_touch_controls_auto", "pc_off"},
                                    std::clamp(s.display.touch_controls, 0, 1), "pc_note_touch_controls"));
 #endif
@@ -2283,9 +2302,16 @@ public:
             pt::android::SetSecondScreenMode(s.display.second_screen);
 #endif
             break;
-        case kGraphicsDriver:
-            s.display.android_driver = std::clamp(value, 0, 1);
+        case kGraphicsDriver: {
+#ifdef __ANDROID__
+            const std::vector<std::string> drivers = GraphicsDrivers();
+            if (value >= 0 && value < static_cast<int>(drivers.size())) {
+                s.display.android_driver = drivers[value];
+                app_.driver_error.clear();
+            }
+#endif
             break;
+        }
         case kTouchControls:
             s.display.touch_controls = std::clamp(value, 0, 1);
 #ifdef __ANDROID__
@@ -2622,6 +2648,10 @@ public:
         if (id == kStreetRestart) game_.AnswerStreetOffer(false);
         // the menu closes first (main loop), then the walk ends
         if (id == kStreetLeave) app_.extras_request = 3;
+#ifdef __ANDROID__
+        // Graphics driver's Browse...: the picker's answer arrives in PumpEvents (TakePickedDriver)
+        if (id == kGraphicsDriver) pt::android::BrowseDriver();
+#endif
         if (id == kLoopLock) {
             game_.SetBrowseUnlocks(0, false);
             app_.settings.progress = {};
@@ -3325,6 +3355,26 @@ private:
         }
     }
 
+#ifdef __ANDROID__
+    // the Graphics driver row's values as display.android_driver takes them: system, turnip, then the added zips
+    static std::vector<std::string> GraphicsDrivers() {
+        std::vector<std::string> drivers = {"system", "turnip"};
+        for (std::string& name : pt::android::CustomDrivers()) drivers.push_back(std::move(name));
+        return drivers;
+    }
+
+    // system and turnip in any case, as android.cpp reads them; an added driver by its exact (folder) name
+    static bool SameDriver(const std::string& a, const std::string& b) {
+        if (a == b) return true;
+        auto lower = [](std::string text) {
+            std::transform(text.begin(), text.end(), text.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+            return text;
+        };
+        const std::string la = lower(a);
+        return (la == "system" || la == "turnip") && la == lower(b);
+    }
+#endif
+
     App& app_;
     pt::game::Game& game_;
     pt::InputDevice& input_;
@@ -3336,6 +3386,15 @@ bool PumpEvents(App& app, pt::InputDevice* input, bool& running, pt::KeyPressLat
     }
 #ifdef __ANDROID__
     pt::android::PumpTouchControls();
+    // Graphics driver's Browse...: an added zip becomes the setting at once (used from the next start), the settings page shows
+    // it at its next refresh
+    if (std::string picked, error; pt::android::TakePickedDriver(picked, error)) {
+        app.driver_error = error;
+        if (!picked.empty()) {
+            app.settings.display.android_driver = picked;
+            if (!app.settings_path.empty()) pt::SaveAppSettings(app.settings_path, app.settings);
+        }
+    }
 #endif
     SDL_Event event;
     while (SDL_PollEvent(&event)) {

@@ -21,6 +21,7 @@
 #include <atomic>
 #include <cctype>
 #include <fstream>
+#include <mutex>
 #include <sstream>
 #include <vector>
 
@@ -131,10 +132,53 @@ std::filesystem::path LogDir() {
 
 namespace {
 int g_resolution_setting = 0;
-int g_driver_setting = 0;  // display.android_driver: 0 bundled Turnip, 1 the device's own
+std::string g_driver_setting = "turnip";  // display.android_driver: turnip, system or an added driver's name
+
+// where Browse... unpacks the driver zips (DriverPicker.java: getFilesDir()/custom_drivers), one folder each
+std::filesystem::path CustomDriversDir() {
+    const char* internal = SDL_GetAndroidInternalStoragePath();
+    return std::filesystem::path(internal ? internal : ".") / "custom_drivers";
 }
 
-void SetDriverSetting(int value) { g_driver_setting = std::clamp(value, 0, 1); }
+// the picker's last answer (DriverPicker.nativePicked, on a worker thread), taken on the game thread
+std::mutex g_pick_mutex;
+bool g_pick_ready = false;
+std::string g_pick_name;
+std::string g_pick_error;
+
+void SetPicked(std::string name, std::string error) {
+    std::lock_guard lock(g_pick_mutex);
+    g_pick_ready = true;
+    g_pick_name = std::move(name);
+    g_pick_error = std::move(error);
+}
+}
+
+void SetDriverSetting(const std::string& value) { g_driver_setting = value.empty() ? "turnip" : value; }
+
+std::vector<std::string> CustomDrivers() {
+    std::vector<std::string> names;
+    std::error_code ec;
+    for (auto it = std::filesystem::directory_iterator(CustomDriversDir(), ec); !ec && it != std::filesystem::directory_iterator();
+         it.increment(ec)) {
+        // library.txt is written last (DriverPicker.java): a folder without it is an unpacking that did not finish
+        std::error_code file_ec;
+        if (it->is_directory(file_ec) && std::filesystem::is_regular_file(it->path() / "library.txt", file_ec)) {
+            names.push_back(it->path().filename().string());
+        }
+    }
+    std::sort(names.begin(), names.end());
+    return names;
+}
+
+bool TakePickedDriver(std::string& name, std::string& error) {
+    std::lock_guard lock(g_pick_mutex);
+    if (!g_pick_ready) return false;
+    g_pick_ready = false;
+    name = std::move(g_pick_name);
+    error = std::move(g_pick_error);
+    return true;
+}
 
 void SetResolutionSetting(int index) { g_resolution_setting = std::clamp(index, 0, kResolutionChoices - 1); }
 
@@ -202,6 +246,15 @@ bool CallActivityStatic(const char* name, const char* signature, Call&& call) {
 }
 
 }  // namespace
+
+void BrowseDriver() {
+    jboolean started = JNI_FALSE;
+    CallActivityStatic("browseDriver", "()Z", [&](JNIEnv* env, jclass cls, jmethodID m) { started = env->CallStaticBooleanMethod(cls, m); });
+    if (started != JNI_TRUE) {
+        LogWarn("android: the driver picker could not be opened");
+        SetPicked({}, "the file picker could not be opened");
+    }
+}
 
 void SetTouchControlsEnabled(bool enabled) {
     CallActivityStatic("setTouchControlsEnabled", "(Z)V",
@@ -337,8 +390,14 @@ bool UnpackBundledAssets() {
 
 namespace {
 
+struct DriverChoice {
+    std::string value;
+    // from driver.txt, not the setting: another driver there is a .so put next to driver.txt
+    bool from_file = false;
+};
+
 // driver.txt: in Download/PT-logs (reachable with a file manager), else in the app's own folder
-std::string DriverChoice() {
+DriverChoice ChosenDriver() {
     // driver.txt first (a file manager's file in Download is often unreadable to the app, so the setting is the usual way)
     for (const std::filesystem::path& file : {LogDir() / "driver.txt", DataDir() / "driver.txt"}) {
         std::ifstream in(file);
@@ -346,18 +405,18 @@ std::string DriverChoice() {
         if (std::getline(in, line) && !Trim(line).empty()) {
             line = Trim(line);
             LogInfo("android: driver.txt in {}: {}", file.parent_path().string(), line);
-            return line;
+            return {line, true};
         }
     }
-    return g_driver_setting == 1 ? "system" : "turnip";
+    return {g_driver_setting, false};
 }
 
 PFN_vkGetInstanceProcAddr OpenVulkanDriver(std::string& name) {
-    const std::string choice = DriverChoice();
-    std::string lower = choice;
+    const DriverChoice choice = ChosenDriver();
+    std::string lower = choice.value;
     std::transform(lower.begin(), lower.end(), lower.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
     if (lower == "system") {
-        name = g_driver_setting == 1 ? "system driver (setting)" : "system driver (driver.txt)";
+        name = choice.from_file ? "system driver (driver.txt)" : "system driver (setting)";
         return nullptr;
     }
     const std::string lib_dir = NativeLibraryDir();
@@ -370,10 +429,10 @@ PFN_vkGetInstanceProcAddr OpenVulkanDriver(std::string& name) {
     std::string driver_dir = hook_dir;
     std::string driver_file = "libvulkan_turnip.so";
     std::string label = "Mesa Turnip (bundled)";
-    if (lower != "turnip") {
+    if (lower != "turnip" && choice.from_file) {
         /* another driver: a .so (the one inside an AdrenoTools driver zip) named in driver.txt and put next to it. A library
            cannot be loaded from shared storage, so it is copied into the app's private folder first. */
-        const std::filesystem::path source = LogDir() / choice;
+        const std::filesystem::path source = LogDir() / choice.value;
         const std::filesystem::path private_dir = std::filesystem::path(SDL_GetAndroidInternalStoragePath()) / "drivers";
         std::error_code ec;
         std::filesystem::create_directories(private_dir, ec);
@@ -385,6 +444,21 @@ PFN_vkGetInstanceProcAddr OpenVulkanDriver(std::string& name) {
             driver_dir = private_dir.string() + "/";
             driver_file = source.filename().string();
             label = "custom driver " + driver_file;
+        }
+    } else if (lower != "turnip") {
+        // a driver zip added with Browse...: its folder holds the zip's files and library.txt, the name of its driver .so
+        const std::filesystem::path dir = CustomDriversDir() / choice.value;
+        std::ifstream in(dir / "library.txt");
+        std::string library;
+        std::getline(in, library);
+        library = Trim(library);
+        std::error_code ec;
+        if (library.empty() || !std::filesystem::is_regular_file(dir / library, ec)) {
+            LogWarn("android: added driver {} not found or incomplete, using the bundled Turnip", dir.string());
+        } else {
+            driver_dir = dir.string() + "/";
+            driver_file = library;
+            label = "added driver " + choice.value + " (" + library + ")";
         }
     }
     const char* cache = SDL_GetAndroidCachePath();
@@ -563,6 +637,25 @@ extern "C" JNIEXPORT void JNICALL Java_com_ptport_app_SecondScreen_nativeLog(JNI
     const char* chars = env->GetStringUTFChars(message, nullptr);
     if (chars) pt::LogInfo("android: {}", chars);
     env->ReleaseStringUTFChars(message, chars);
+}
+
+// DriverPicker.java: the zip the player picked was unpacked as `name`, or failed with `error`; both empty when the picker was
+// closed without one
+extern "C" JNIEXPORT void JNICALL Java_com_ptport_app_DriverPicker_nativePicked(JNIEnv* env, jclass, jstring name, jstring error) {
+    auto text = [env](jstring value) {
+        std::string out;
+        if (!value) return out;
+        if (const char* chars = env->GetStringUTFChars(value, nullptr)) {
+            out = chars;
+            env->ReleaseStringUTFChars(value, chars);
+        }
+        return out;
+    };
+    std::string picked = text(name);
+    std::string failed = text(error);
+    if (!picked.empty()) pt::LogInfo("android: driver zip added as {}", picked);
+    else if (!failed.empty()) pt::LogWarn("android: driver zip not added: {}", failed);
+    pt::android::SetPicked(std::move(picked), std::move(failed));
 }
 
 extern "C" JNIEXPORT void JNICALL Java_com_ptport_app_TouchControls_nativeVisible(JNIEnv*, jclass, jboolean visible) {
