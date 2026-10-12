@@ -336,6 +336,7 @@ constexpr Entry kTexts[] = {
     {"pc_note_rt_shadows", {"Shadows traced against the scene instead of shadow maps, as sharp as the original's. Not in the original."}},
     {"pc_note_rt_soft", {"Traced shadows with soft edges from each light's size. Not in the original."}},
     {"pc_note_rt_unsupported", {"Needs a GPU with Vulkan ray tracing."}},
+    {"pc_note_android_unavailable", {"Not available on Android: it crashes the game there."}},
     {"pc_note_graphics", {"Choose a graphics preset, or fine-tune lighting, textures and image effects. Resolution and upscaling stay separate."}},
     {"pc_note_rt_contact", {"Objects cast short traced shadows from every light, also the ones the original leaves unshadowed."}},
     {"pc_note_rt_ao", {"Traced shading darkens corners and the space under and behind objects. Not in the original."}},

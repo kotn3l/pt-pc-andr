@@ -424,6 +424,12 @@ bool Context::Init(SDL_Window* window, bool validation, bool want_hdr) {
         hooks->DeviceQueues(physical, surface, queue_family, queue_infos);
     }
     ray_query_supported = RayQuerySupport(physical, ray_query_missing);
+#ifdef __ANDROID__
+    // the ray traced options crash the game on Android's drivers: no ray queries there, so the settings offer none
+    if (ray_query_supported) LogInfo("vulkan: ray queries left off on Android");
+    ray_query_supported = false;
+    ray_query_missing = "ray tracing on Android";
+#endif
     VkPhysicalDeviceFaultFeaturesEXT fault_features{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FAULT_FEATURES_EXT};
 #ifdef __APPLE__
     VkPhysicalDevicePortabilitySubsetFeaturesKHR portability{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PORTABILITY_SUBSET_FEATURES_KHR};

@@ -24,6 +24,10 @@ void ApplyGraphicsPreset(AppSettings& s, GraphicsPreset preset, bool rt) {
         break;
     default: break;
     }
+#ifdef __ANDROID__
+    // the enhanced textures crash the game on Android: no preset turns them on there
+    g.enhanced_textures=false;
+#endif
 }
 GraphicsPreset DetectGraphicsPreset(const AppSettings& s, bool rt) {
     for(auto p:{GraphicsPreset::Low,GraphicsPreset::Original,GraphicsPreset::High,GraphicsPreset::Ultra}) {

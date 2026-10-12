@@ -716,6 +716,10 @@ void MountMods(App& app) {
 }
 
 void RequestEnhancedTextures(App& app, bool enabled) {
+#ifdef __ANDROID__
+    // they crash the game on Android
+    enabled = false;
+#endif
     app.texture_requested = enabled;
     if (!enabled) {
         app.texture_job.Cancel();
@@ -3112,13 +3116,24 @@ private:
         std::string reason;
         const bool supported = app_.scene.RayTracingSupported(reason);
         const int value = supported && on ? 1 : 0;
-        const char* note = !supported ? "pc_note_rt_unsupported" : value > 0 && !app_.scene.RayTracingReady() ? "pc_note_restart" : note_on;
+#ifdef __ANDROID__
+        const char* unsupported = "pc_note_android_unavailable";
+#else
+        const char* unsupported = "pc_note_rt_unsupported";
+#endif
+        const char* note = !supported ? unsupported : value > 0 && !app_.scene.RayTracingReady() ? "pc_note_restart" : note_on;
         pt::game::PcSettingRow row = Row(id, label, OffOn(), value, note);
         row.enabled = supported;
         return row;
     }
 
     pt::game::PcSettingRow EnhancedRow() const {
+#ifdef __ANDROID__
+        // they crash the game on Android
+        auto row=Row(kEnhancedTextures,"pc_enhanced_textures",OffOn(),0,"pc_note_android_unavailable");
+        row.enabled=false;
+        return row;
+#else
         auto values=OffOn();
         const bool preparing=app_.texture_requested;
         if(preparing) values[1]="pc_texture_preparing";
@@ -3129,6 +3144,7 @@ private:
                  job.note=="Texture generation is already running in another instance."?"pc_note_texture_busy":"pc_note_texture_failed";
         }
         return Row(kEnhancedTextures,"pc_enhanced_textures",std::move(values),app_.settings.graphics.enhanced_textures?1:0,note);
+#endif
     }
 
     std::vector<pt::game::PcSettingSection> GraphicsSections() const {
@@ -5432,6 +5448,14 @@ int main(int argc, char** argv) {
             android_defaults_applied = true;
             pt::LogInfo("android: handheld graphics defaults applied (shadows 1024 px, no ambient occlusion, motion blur, depth of field)");
         }
+    }
+    // ray tracing and the enhanced textures crash the game on Android: off at every start, whatever pt.ini holds (the settings
+    // page offers neither there)
+    if (app.settings.graphics.enhanced_textures || !(app.settings.ray_tracing == pt::AppSettings::RayTracing{})) {
+        app.settings.graphics.enhanced_textures = false;
+        app.settings.ray_tracing = pt::AppSettings::RayTracing{};
+        android_defaults_applied = true;
+        pt::LogInfo("android: ray tracing and enhanced textures turned off (not available on Android)");
     }
 #endif
     if (!options.headless) {
